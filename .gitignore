@@ -1,0 +1,8 @@
+output/
+results/
+data/
+third_party/
+weights/
+__pycache__/
+*.pyc
+.venv/

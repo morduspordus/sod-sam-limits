@@ -1,0 +1,13 @@
+numpy>=2.0
+scipy
+opencv-python
+pillow
+PyMaxflow
+torch>=2.6
+torchvision
+tqdm
+h5py
+scikit-learn
+timm
+# optional: the dense CRF baseline
+pydensecrf2
