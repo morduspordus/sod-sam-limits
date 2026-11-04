@@ -47,3 +47,7 @@ The analyses: `oracle.py` and `pixel_oracle.py` (oracles), `review_eval.py` (unt
 measures, the gain by error type), `error_types.py` (remaining errors), `multi_answer_eval.py` and
 `annotator_support.py` (multi-annotator data), `bootstrap_ci.py` (confidence intervals), and
 `paper_tables.py` (the tables of the paper, generated from the result files).
+
+## License
+
+MIT; see `LICENSE`. SAM 2, the SOD models and the datasets have their own licenses.
