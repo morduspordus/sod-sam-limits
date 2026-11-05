@@ -11,3 +11,5 @@ scikit-learn
 timm
 # optional: the dense CRF baseline
 pydensecrf2
+# optional: the CascadePSP baseline
+segmentation-refinement

@@ -9,6 +9,11 @@ Zero-shot (Table 1; single mask, saved as <id>_1.png):
   python scripts/run_sam.py --sod-model none --prompt box_margin --margins 0 20 40 60 80 100 --datasets DUTS-TE
   python scripts/run_sam.py --sod-model none --prompt center --datasets DUTS-TE
   python scripts/run_sam.py --sod-model selfreformer --prompt box_sod --datasets DUTS-TE
+Stronger naive baselines (single mask, saved as <id>_1.png; review of the paper):
+  mask_zoom1  the zoom-in mask prompt with SAM's single-mask output
+  box_thr     the box of the thresholded SOD mask (max-normalized map >= 127), single mask
+  box_mask1   that box together with the soft mask prompt (on the whole image), single mask
+  python scripts/run_sam.py --sod-model samba --prompt box_thr box_mask1 mask_zoom1 --datasets DUTS-TE
 """
 import argparse
 import json
@@ -29,7 +34,7 @@ def main():
     ap.add_argument("--prompt", required=True, nargs="+",
                     choices=["mask_soft", "mask_binary", "mask_logit", "box_sod", "box_margin", "center",
                              "mask_comp", "mask_erode", "mask_dilate", "box_mask", "mask_flip", "mask_inv",
-                             "mask_zoom"],
+                             "mask_zoom", "mask_zoom1", "box_thr", "box_mask1"],
                     help="several prompts share one image encoding per image")
     ap.add_argument("--suffix", default="", help="appended to the output subdir, e.g. _hq for another SAM")
     ap.add_argument("--save-probs", action="store_true",
@@ -69,10 +74,10 @@ def main():
             h, w = img.shape[:2]
             sam.set_image(img)
             sod = None
-            if any(p.startswith("mask_") or p in ("box_sod", "box_mask") for p in args.prompt):
+            if any(p.startswith("mask_") or p in ("box_sod", "box_mask", "box_thr", "box_mask1") for p in args.prompt):
                 sod = data.read_png(data.run_dir(args.sod_model, ds, "sod") / f"{id_}.png")
             # the flipped-image and zoom prompts need their own image encoding: do them last
-            order = sorted(range(len(runs)), key=lambda r: runs[r][0] in ("mask_flip", "mask_zoom"))
+            order = sorted(range(len(runs)), key=lambda r: runs[r][0] in ("mask_flip", "mask_zoom", "mask_zoom1"))
             flipped = False
             for r in order:
                 (p, m, _), d, scores = runs[r], dirs[r], all_scores[r]
@@ -92,6 +97,12 @@ def main():
                     masks, sc, probs = sam.from_mask_and_box(sod)
                 elif p == "mask_zoom":
                     masks, sc, probs = sam.from_zoom(img, sod)
+                elif p == "mask_zoom1":
+                    masks, sc, probs = sam.from_zoom(img, sod, multimask=False)
+                elif p == "box_mask1":
+                    masks, sc, probs = sam.from_mask_and_box(sod, multimask=False)
+                elif p == "box_thr":
+                    masks, sc, probs = sam.from_box(sod_box(sod, 127.0))
                 elif p == "mask_inv":
                     # complement prompt: SAM segments the background object(s); 255 - map, so the
                     # prompt is the exact mirror of mask_soft (no max-normalization, as there)

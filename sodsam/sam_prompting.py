@@ -42,11 +42,12 @@ class SamRunner:
         # the predictor thresholds logits at mask_threshold = 0 when return_logits=False
         return logits > 0, np.asarray(scores, dtype=np.float64), 1 / (1 + np.exp(-logits))
 
-    def from_mask(self, sod_map, mode="soft", threshold=127.0):
+    def from_mask(self, sod_map, mode="soft", threshold=127.0, multimask=True):
         """Three masks (3,H,W bool), scores and probabilities for an SOD map prompt; call set_image first.
 
         mode: soft (the 0..255 map as logits, original script), binary (thresholded map as +-10),
         logit (calibrated: 2 * logit of the max-normalized map clipped to [0.01, 0.99]).
+        multimask=False: SAM's single-mask output (1,H,W) instead.
         """
         m = np.array(Image.fromarray(sod_map.astype(np.uint8)).resize((256, 256), Image.NEAREST))
         s = m.astype(np.float64) / (sod_map.max() + 1e-13)   # max-normalized, in [0, 1]
@@ -59,14 +60,14 @@ class SamRunner:
             prompt = (2 * np.log(s / (1 - s))).astype(np.float32)
         else:
             raise ValueError(mode)
-        return self._predict(mask_input=prompt[None], multimask_output=True)
+        return self._predict(mask_input=prompt[None], multimask_output=multimask)
 
-    def from_mask_and_box(self, sod_map, threshold=127.0):
+    def from_mask_and_box(self, sod_map, threshold=127.0, multimask=True):
         """Soft mask prompt together with the box of the thresholded SOD mask."""
         m = np.array(Image.fromarray(sod_map.astype(np.uint8)).resize((256, 256), Image.NEAREST))
         return self._predict(mask_input=m.astype(np.float32)[None],
                              box=np.asarray(sod_box(sod_map, threshold), dtype=np.float32),
-                             multimask_output=True)
+                             multimask_output=multimask)
 
     def from_components(self, sod_map, threshold=127.0, min_frac=0.01, max_comp=4):
         """Per-component prompting: the soft map restricted to each connected component of the
@@ -100,22 +101,23 @@ class SamRunner:
         f = cv2.erode if op == "erode" else cv2.dilate
         return self.from_mask(f(sod_map.astype(np.uint8), kernel), "soft")
 
-    def from_zoom(self, img, sod_map, threshold=127.0, margin=0.25, max_frac=0.3):
+    def from_zoom(self, img, sod_map, threshold=127.0, margin=0.25, max_frac=0.3, multimask=True):
         """Zoom-in prompting: the image is cropped to the box of the thresholded SOD map enlarged by
         `margin` of its size, encoded again, prompted with the soft map of the crop, and the masks are
         pasted back (background outside the crop). Falls back to the soft prompt on the whole image
-        when the box covers more than max_frac of it. Leaves the predictor on the crop."""
+        when the box covers more than max_frac of it. Leaves the predictor on the crop.
+        multimask=False: SAM's single-mask output."""
         h, w = sod_map.shape
         x0, y0, x1, y1 = sod_box(sod_map, threshold)
         bw, bh = x1 - x0 + 1, y1 - y0 + 1
         if bw * bh > max_frac * h * w or min(bw, bh) < 8:
             self.set_image(img)
-            return self.from_mask(sod_map, "soft")
+            return self.from_mask(sod_map, "soft", multimask=multimask)
         mx, my = int(margin * bw), int(margin * bh)
         X0, Y0, X1, Y1 = max(0, x0 - mx), max(0, y0 - my), min(w, x1 + 1 + mx), min(h, y1 + 1 + my)
         self.set_image(np.ascontiguousarray(img[Y0:Y1, X0:X1]))
-        mk, sc, pr = self.from_mask(sod_map[Y0:Y1, X0:X1], "soft")
-        masks, probs = np.zeros((3, h, w), bool), np.zeros((3, h, w), np.float32)
+        mk, sc, pr = self.from_mask(sod_map[Y0:Y1, X0:X1], "soft", multimask=multimask)
+        masks, probs = np.zeros((len(mk), h, w), bool), np.zeros((len(mk), h, w), np.float32)
         masks[:, Y0:Y1, X0:X1], probs[:, Y0:Y1, X0:X1] = mk, pr
         return masks, sc, probs
 
