@@ -147,16 +147,22 @@ def fig_samsal_rows(sod, use, path):
     grid(rows, ["Image", "Ground truth", "SOD mask", "SAM mask 1", "SAM mask 2", "SAM mask 3"], path)
 
 
+BG_TO_OBJ = (230, 159, 0)     # orange (Okabe-Ito, color-blind safe): p (above / left) background, q object
+OBJ_TO_BG = (0, 114, 178)     # blue: p object, q background
+
+
 def oriented(n):
-    """RGB visualization of the oriented boundaries of the SAM count map n (0..3) on the 4-grid:
-    horizontal neighbors (p above q) red (bg->obj) / blue (obj->bg), vertical (p left of q) green / yellow."""
+    """RGB visualization of the oriented boundaries of the SAM count map n (0..3) on the 4-grid (pairs whose
+    count changes by >= 2): orange where the upper / left pixel is on the background side, blue where it is
+    on the object side; light gray: pixels in at least two masks. Call it on a map already resized to the
+    tile size (nearest), so that the 3x3 dilation keeps the boundaries visible at figure scale."""
     vis = np.full(n.shape + (3,), 255, np.uint8)
     vis[n >= 2] = (225, 225, 225)                       # majority of the SAM masks
     dv = n[:-1, :].astype(int) - n[1:, :]
     dh = n[:, :-1].astype(int) - n[:, 1:]
     k = np.ones((3, 3), np.uint8)
-    for m, col, sl in ((dv <= -2, (230, 0, 0), (slice(0, -1), slice(None))), (dv >= 2, (0, 0, 230), (slice(0, -1), slice(None))),
-                       (dh <= -2, (0, 170, 0), (slice(None), slice(0, -1))), (dh >= 2, (230, 190, 0), (slice(None), slice(0, -1)))):
+    for m, col, sl in ((dv <= -2, BG_TO_OBJ, (slice(0, -1), slice(None))), (dv >= 2, OBJ_TO_BG, (slice(0, -1), slice(None))),
+                       (dh <= -2, BG_TO_OBJ, (slice(None), slice(0, -1))), (dh >= 2, OBJ_TO_BG, (slice(None), slice(0, -1)))):
         full = np.zeros(n.shape, bool)
         full[sl] = m
         full = cv2.dilate(full.astype(np.uint8), k) > 0         # visible at figure scale
@@ -165,12 +171,13 @@ def oriented(n):
 
 
 def fig_edges(sod, out, pick):
-    ids = pick or ["ILSVRC2012_test_00000003"]
+    ids = pick or ["ILSVRC2012_test_00071459", "ILSVRC2012_test_00003592"]
     rows = []
     for i in ids:
         ms = sam_masks(sod, i)
         n = sum(m.astype(np.uint8) for m in ms)
-        rows.append([tile(data.load_image(DS, i))] + [tile(m, True) for m in ms] + [tile(oriented(n), True)])
+        n_small = cv2.resize(n, (W, H), interpolation=cv2.INTER_NEAREST)
+        rows.append([tile(data.load_image(DS, i))] + [tile(m, True) for m in ms] + [oriented(n_small)])
     grid(rows, ["Image", "SAM mask 1", "SAM mask 2", "SAM mask 3", "Oriented boundaries"], out / "edges_v2.pdf")
 
 
@@ -181,12 +188,12 @@ def outputs(sod, i, gc_name, head_tag):
     return s, gc, hd
 
 
-def fig_results(out, pick, gc_name, failures=False):
+def fig_results(out, pick, gc_name, failures=False, exclude=()):
     """Rows alternate SOD models; chosen where the fusion helps most and both fused results are good
     (F >= .9), or, for failures, where the SOD map is good (F > .8) and both methods are worse than it.
-    An image is shown for one SOD model only."""
+    An image is shown for one SOD model only, and never one of `exclude` (images of other figures)."""
     rows = []
-    shown = set()
+    shown = set(exclude)
     for sod in ("selfreformer", "samba"):
         ids = pick.get(sod) if pick else None
         if not ids:
@@ -223,6 +230,7 @@ def main():
     ap.add_argument("--sod-model", default="selfreformer")
     ap.add_argument("--gc-name", default="gc_zoom", help="subdir of the saved graph-cut maps (save_maps.py)")
     ap.add_argument("--pick", nargs="*", default=[], help="fig=id,id,... or fig:sod=id,id,...")
+    ap.add_argument("--exclude", nargs="*", default=[], help="ids never shown in results/failures (used elsewhere)")
     args = ap.parse_args()
     out = Path(args.out)
     SCRATCH.mkdir(parents=True, exist_ok=True)
@@ -236,7 +244,8 @@ def main():
         fig_edges(args.sod_model, out, picks.get("edges"))
     for fig, fail in (("results", False), ("failures", True)):
         if fig in args.figs:
-            fig_results(out, {s: picks.get(f"{fig}:{s}") for s in ("selfreformer", "samba")}, args.gc_name, fail)
+            fig_results(out, {s: picks.get(f"{fig}:{s}") for s in ("selfreformer", "samba")}, args.gc_name, fail,
+                        args.exclude)
     if "teaser" in args.figs:
         fig_teaser(args.sod_model, out, picks["teaser"][0], args.gc_name)
 
