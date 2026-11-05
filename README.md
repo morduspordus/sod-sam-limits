@@ -43,10 +43,15 @@ Cached outputs go to `output/` (or `SODSAM_OUT`) and results to `results/`.
     python scripts/train_head.py --sod-model selfreformer --prompt mask_zoom \
         --train-dataset MSRA-B4K --tag selfreformer_hz                    # the learned fusion head
 
-The analyses: `oracle.py` and `pixel_oracle.py` (oracles), `review_eval.py` (untuned rules, boundary
-measures, the gain by error type), `error_types.py` (remaining errors), `multi_answer_eval.py` and
-`annotator_support.py` (multi-annotator data), `bootstrap_ci.py` (confidence intervals), and
-`paper_tables.py` (the tables of the paper, generated from the result files).
+The analyses: `oracle.py` and `pixel_oracle.py` (oracles), `granularity.py` (the per-image choice of one
+whole candidate within the pixel oracle), `review_eval.py` (untuned rules, boundary measures, the gain by
+error type), `error_types.py` (remaining errors), `error_robust.py` (the error decomposition under other
+weightings and thresholds, and at the pixel level), `multi_answer_eval.py` and `annotator_support.py`
+(multi-annotator data), `bootstrap_ci.py` (confidence intervals), `paper_tables.py` and
+`review_tables.py` (the tables of the paper and the supplementary material, generated from the result
+files). Other encodings of the mask prompt: `run_sam.py --prompt mask_zoom_binary mask_zoom_logit
+mask_zoom_signed mask_zoom_pts`, then `tune2.py` and `fuse_eval.py` as above with the same prompt
+(tuned on MSOD and MSRA-B1K).
 
 ## License
 

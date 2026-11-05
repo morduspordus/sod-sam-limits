@@ -21,6 +21,7 @@ SAM2_ROOT = os.environ.get("SAM2_ROOT", "third_party/sam2")
 SAM2_CKPT = os.environ.get("SAM2_CKPT", os.path.join(SAM2_ROOT, "checkpoints", "sam2.1_hiera_large.pt"))
 SAM2_CFG = os.environ.get("SAM2_CFG", "configs/sam2.1/sam2.1_hiera_l.yaml")
 BINARY_LOGIT = 10.0
+SIGNED_LOGIT = 10.0
 
 
 class SamRunner:
@@ -42,11 +43,14 @@ class SamRunner:
         # the predictor thresholds logits at mask_threshold = 0 when return_logits=False
         return logits > 0, np.asarray(scores, dtype=np.float64), 1 / (1 + np.exp(-logits))
 
-    def from_mask(self, sod_map, mode="soft", threshold=127.0, multimask=True):
+    def from_mask(self, sod_map, mode="soft", threshold=127.0, multimask=True, pts=False):
         """Three masks (3,H,W bool), scores and probabilities for an SOD map prompt; call set_image first.
 
         mode: soft (the 0..255 map as logits, original script), binary (thresholded map as +-10),
-        logit (calibrated: 2 * logit of the max-normalized map clipped to [0.01, 0.99]).
+        logit (calibrated: 2 * logit of the max-normalized map clipped to [0.01, 0.99]),
+        signed (graded and symmetric: SIGNED_LOGIT * (2s - 1) of the max-normalized map s).
+        pts: also one positive point at the interior-most pixel of the thresholded SOD mask and one
+        negative point at the interior-most pixel of its complement (sod_points).
         multimask=False: SAM's single-mask output (1,H,W) instead.
         """
         m = np.array(Image.fromarray(sod_map.astype(np.uint8)).resize((256, 256), Image.NEAREST))
@@ -58,9 +62,16 @@ class SamRunner:
         elif mode == "logit":
             s = np.clip(s, 0.01, 0.99)
             prompt = (2 * np.log(s / (1 - s))).astype(np.float32)
+        elif mode == "signed":
+            prompt = (SIGNED_LOGIT * (2 * s - 1)).astype(np.float32)
         else:
             raise ValueError(mode)
-        return self._predict(mask_input=prompt[None], multimask_output=multimask)
+        kw = {}
+        if pts:
+            coords, labels = sod_points(sod_map, threshold)
+            if len(labels):
+                kw = {"point_coords": coords, "point_labels": labels}
+        return self._predict(mask_input=prompt[None], multimask_output=multimask, **kw)
 
     def from_mask_and_box(self, sod_map, threshold=127.0, multimask=True):
         """Soft mask prompt together with the box of the thresholded SOD mask."""
@@ -101,22 +112,24 @@ class SamRunner:
         f = cv2.erode if op == "erode" else cv2.dilate
         return self.from_mask(f(sod_map.astype(np.uint8), kernel), "soft")
 
-    def from_zoom(self, img, sod_map, threshold=127.0, margin=0.25, max_frac=0.3, multimask=True):
+    def from_zoom(self, img, sod_map, threshold=127.0, margin=0.25, max_frac=0.3, multimask=True,
+                  mode="soft", pts=False):
         """Zoom-in prompting: the image is cropped to the box of the thresholded SOD map enlarged by
         `margin` of its size, encoded again, prompted with the soft map of the crop, and the masks are
         pasted back (background outside the crop). Falls back to the soft prompt on the whole image
         when the box covers more than max_frac of it. Leaves the predictor on the crop.
-        multimask=False: SAM's single-mask output."""
+        multimask=False: SAM's single-mask output. mode, pts: the mask encoding and points of from_mask
+        (the paper's prompt is mode="soft", pts=False)."""
         h, w = sod_map.shape
         x0, y0, x1, y1 = sod_box(sod_map, threshold)
         bw, bh = x1 - x0 + 1, y1 - y0 + 1
         if bw * bh > max_frac * h * w or min(bw, bh) < 8:
             self.set_image(img)
-            return self.from_mask(sod_map, "soft", multimask=multimask)
+            return self.from_mask(sod_map, mode, threshold, multimask=multimask, pts=pts)
         mx, my = int(margin * bw), int(margin * bh)
         X0, Y0, X1, Y1 = max(0, x0 - mx), max(0, y0 - my), min(w, x1 + 1 + mx), min(h, y1 + 1 + my)
         self.set_image(np.ascontiguousarray(img[Y0:Y1, X0:X1]))
-        mk, sc, pr = self.from_mask(sod_map[Y0:Y1, X0:X1], "soft", multimask=multimask)
+        mk, sc, pr = self.from_mask(sod_map[Y0:Y1, X0:X1], mode, threshold, multimask=multimask, pts=pts)
         masks, probs = np.zeros((len(mk), h, w), bool), np.zeros((len(mk), h, w), np.float32)
         masks[:, Y0:Y1, X0:X1], probs[:, Y0:Y1, X0:X1] = mk, pr
         return masks, sc, probs
@@ -147,6 +160,22 @@ def sod_box(sod_map, threshold=None):
     if xs.size == 0:
         return [0, 0, w, h]
     return [xs.min(), ys.min(), xs.max(), ys.max()]
+
+
+def sod_points(sod_map, threshold=127.0):
+    """Point prompt (coords (K,2) xy float32, labels (K,)): label 1 at the interior-most pixel of the
+    thresholded SOD mask (max of its distance transform), label 0 at the interior-most pixel of the
+    complement; a point is left out when its region is empty."""
+    import cv2
+    fg = (255.0 * sod_map / (sod_map.max() + 1e-13) >= threshold).astype(np.uint8)
+    coords, labels = [], []
+    for region, lab in ((fg, 1), (1 - fg, 0)):
+        if region.any():
+            d = cv2.distanceTransform(np.pad(region, 1), cv2.DIST_L2, 5)[1:-1, 1:-1]   # image border counts
+            y, x = np.unravel_index(np.argmax(d), d.shape)
+            coords.append((x, y))
+            labels.append(lab)
+    return np.asarray(coords, dtype=np.float32).reshape(-1, 2), np.asarray(labels, dtype=np.int32)
 
 
 def margin_box(h, w, margin):

@@ -14,6 +14,10 @@ Stronger naive baselines (single mask, saved as <id>_1.png; review of the paper)
   box_thr     the box of the thresholded SOD mask (max-normalized map >= 127), single mask
   box_mask1   that box together with the soft mask prompt (on the whole image), single mask
   python scripts/run_sam.py --sod-model samba --prompt box_thr box_mask1 mask_zoom1 --datasets DUTS-TE
+Mask encodings of the zoom-in prompt (second review): mask_zoom_binary (+-10), mask_zoom_logit (2 logit s),
+mask_zoom_signed (10 (2s - 1)), mask_zoom_pts (the paper's soft encoding plus a positive and a negative point)
+  python scripts/run_sam.py --sod-model samba --prompt mask_zoom_binary mask_zoom_logit mask_zoom_signed \
+      mask_zoom_pts --save-probs --datasets MSOD MSRA-B1K DUTS-TE
 """
 import argparse
 import json
@@ -34,7 +38,8 @@ def main():
     ap.add_argument("--prompt", required=True, nargs="+",
                     choices=["mask_soft", "mask_binary", "mask_logit", "box_sod", "box_margin", "center",
                              "mask_comp", "mask_erode", "mask_dilate", "box_mask", "mask_flip", "mask_inv",
-                             "mask_zoom", "mask_zoom1", "box_thr", "box_mask1"],
+                             "mask_zoom", "mask_zoom1", "box_thr", "box_mask1",
+                             "mask_zoom_binary", "mask_zoom_logit", "mask_zoom_signed", "mask_zoom_pts"],
                     help="several prompts share one image encoding per image")
     ap.add_argument("--suffix", default="", help="appended to the output subdir, e.g. _hq for another SAM")
     ap.add_argument("--save-probs", action="store_true",
@@ -77,7 +82,7 @@ def main():
             if any(p.startswith("mask_") or p in ("box_sod", "box_mask", "box_thr", "box_mask1") for p in args.prompt):
                 sod = data.read_png(data.run_dir(args.sod_model, ds, "sod") / f"{id_}.png")
             # the flipped-image and zoom prompts need their own image encoding: do them last
-            order = sorted(range(len(runs)), key=lambda r: runs[r][0] in ("mask_flip", "mask_zoom", "mask_zoom1"))
+            order = sorted(range(len(runs)), key=lambda r: runs[r][0] == "mask_flip" or runs[r][0].startswith("mask_zoom"))
             flipped = False
             for r in order:
                 (p, m, _), d, scores = runs[r], dirs[r], all_scores[r]
@@ -99,6 +104,10 @@ def main():
                     masks, sc, probs = sam.from_zoom(img, sod)
                 elif p == "mask_zoom1":
                     masks, sc, probs = sam.from_zoom(img, sod, multimask=False)
+                elif p == "mask_zoom_pts":       # the paper's soft zoom prompt plus a positive and a negative point
+                    masks, sc, probs = sam.from_zoom(img, sod, mode="soft", pts=True)
+                elif p.startswith("mask_zoom_"):  # the zoom-in prompt with another mask encoding
+                    masks, sc, probs = sam.from_zoom(img, sod, mode=p[len("mask_zoom_"):])
                 elif p == "box_mask1":
                     masks, sc, probs = sam.from_mask_and_box(sod, multimask=False)
                 elif p == "box_thr":
