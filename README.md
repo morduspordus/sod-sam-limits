@@ -53,6 +53,17 @@ files). Other encodings of the mask prompt: `run_sam.py --prompt mask_zoom_binar
 mask_zoom_signed mask_zoom_pts`, then `tune2.py` and `fuse_eval.py` as above with the same prompt
 (tuned on MSOD and MSRA-B1K).
 
+Added in the revision (v1.1):
+
+- `oracle_auto.py` per-image oracles that also choose among SAM's automatic masks
+  (`run_sam_extra.py --prompt auto` or `auto_loose`), and greedy unions of them;
+- `fixed_f.py` F at the fixed threshold 0.5 and adaptive F, with paired bootstrap intervals;
+- `val_overlap.py` the overlap of the fusion head's training set (MSRA-B4K, or `--train DUTS-TR`)
+  with its validation images; to retrain the head without the overlapping images, set
+  `SODSAM_EXCLUDED=sodsam/excluded_ids_dedup.json` before `train_head.py`;
+- `sodc_infer.py` saliency maps of MDSAM, VSCode-S and VST++-B from their official code and released
+  weights (`SODC_ROOT`, `SODC_DATA`), and `cmp_maps.py`, which compares them with the released maps.
+
 ## License
 
 MIT; see `LICENSE`. SAM 2, the SOD models and the datasets have their own licenses.
