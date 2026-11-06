@@ -64,6 +64,14 @@ Added in the revision (v1.1):
 - `sodc_infer.py` saliency maps of MDSAM, VSCode-S and VST++-B from their official code and released
   weights (`SODC_ROOT`, `SODC_DATA`), and `cmp_maps.py`, which compares them with the released maps.
 
+Added in the second round of the revision:
+
+- `oracle_auto_types.py` the gain of the automatic-mask oracle split by the error type of the SOD map;
+- `gain_type_ci.py` bootstrap intervals of the share of the fusion's gain on images with a boundary error;
+- `sliver_stats.py` the small cells of constant signature of the pixel-level oracle;
+- `suppl_stats_tables.py` and `multi_stats_table.py` the supplementary tables of the oracle statistics, the
+  per-type loss reduction, the two analyses above, and the multi-annotator statistics.
+
 ## License
 
 MIT; see `LICENSE`. SAM 2, the SOD models and the datasets have their own licenses.

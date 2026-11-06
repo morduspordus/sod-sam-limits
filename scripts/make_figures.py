@@ -29,7 +29,8 @@ PROMPT = "sam_mask_zoom"
 H = 150                                  # tile height in pixels (tiles are 4:3, width 200)
 W = 200
 GAP = 6
-FONT = ImageFont.truetype("arial.ttf", 17)
+FONT_PX = 26                             # column titles; shrunk where a title is wider than its tile
+FONT = ImageFont.truetype("arial.ttf", FONT_PX)
 SCRATCH = Path(__file__).resolve().parents[1] / "results" / "figures"
 
 
@@ -42,7 +43,7 @@ def tile(a, mask=False):
 def grid(rows, headers, path):
     """rows: list of lists of HxWx3 tiles; headers: column titles."""
     n_c = max(len(r) for r in rows)
-    top = 28 if headers else 0
+    top = FONT_PX + 12 if headers else 0
     canvas = np.full((top + len(rows) * (H + GAP), n_c * (W + GAP) - GAP, 3), 255, np.uint8)
     for i, r in enumerate(rows):
         for j, t in enumerate(r):
@@ -52,8 +53,11 @@ def grid(rows, headers, path):
     if headers:
         d = ImageDraw.Draw(im)
         for j, h in enumerate(headers):
-            w = d.textlength(h, font=FONT)
-            d.text((j * (W + GAP) + (W - w) / 2, 4), h, fill=(0, 0, 0), font=FONT)
+            font = FONT
+            while d.textlength(h, font=font) > W - 4:
+                font = ImageFont.truetype("arial.ttf", font.size - 1)
+            w = d.textlength(h, font=font)
+            d.text((j * (W + GAP) + (W - w) / 2, 4), h, fill=(0, 0, 0), font=font)
     path.parent.mkdir(parents=True, exist_ok=True)
     im.save(path, "PDF", resolution=200)
     im.save(SCRATCH / (path.stem + ".png"))

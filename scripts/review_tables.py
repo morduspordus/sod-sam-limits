@@ -39,7 +39,8 @@ def sgn(x):
 
 
 def pct(x):
-    return f"{100 * x:.0f}"
+    s = f"{100 * x:.0f}"
+    return "$-$" + s[1:] if s.startswith("-") and s != "-0" else s.lstrip("-")
 
 
 def boundary_table(reps):
@@ -75,7 +76,8 @@ def gain_table(reps):
            "as in Sect.~5.4). For each type: the share (\\%) of the SOD map's total loss $\\sum (1 - F)$, with $F$ "
            "at each map's $\\Fmax$ threshold, and the share of the graph cut's (GC) and the head's reduction of "
            "that loss. Negative: the method makes these images worse; --: the method reduces the total loss by "
-           "less than 2\\%, too little for its shares to be meaningful.}",
+           "less than 2\\%, too little for its shares to be meaningful. Shares of small reductions are noisy; "
+           "Table~\\ref{tab:suppl_gain_type_ci} gives bootstrap intervals of the boundary share.}",
            "\\label{tab:suppl_gain_type}", "\\centering", "\\footnotesize", "\\setlength{\\tabcolsep}{2.5pt}",
            "\\begin{tabular}{@{}ll" + "ccc" * len(BENCH) + "@{}}", "\\toprule",
            " & & " + " & ".join(f"\\multicolumn{{3}}{{c}}{{{b}}}" for b in BENCH) + " \\\\",
@@ -278,7 +280,8 @@ def fixed_f_table():
            "\\caption{$F_\\beta$ at thresholds that do not favor soft maps. $\\Fmax$: the best threshold for each "
            "map and dataset (the paper's measure); $F_\\beta$ at 0.5: every map binarized at half its range; "
            "adaptive $F_\\beta$: binarized at twice its mean, as in PySODMetrics. The graph cut is binary, so its three "
-           "values agree up to the min-max normalization. Last rows: differences of $F_\\beta$ at 0.5; $^{*}$: the "
+           "values agree, except that the adaptive threshold of an empty map is 0, which marks the whole image "
+           "(7 graph cuts for SelfReformer and 24 for Samba on DUT-OMRON). Last rows: differences of $F_\\beta$ at 0.5; $^{*}$: the "
            "95\\% paired bootstrap interval excludes zero.}",
            "\\label{tab:suppl_fixed_f}", "\\centering", "\\footnotesize", "\\setlength{\\tabcolsep}{3pt}",
            "\\begin{tabular}{@{}lll" + "c" * len(BENCH) + "@{}}", "\\toprule",
@@ -303,6 +306,33 @@ def fixed_f_table():
     return "\n".join(out) + "\n"
 
 
+def rule_avg_table(reps):
+    """All four metrics of the untuned average of the SOD map and SAM's mean probability map (Table "gain" of the
+    paper gives its F^max), against the SOD map and the graph cut."""
+    rows = [("sod", "SOD map"), ("rule_avg", "Average rule"), ("gc", "Graph cut")]
+    meas = [("Fmax", "$\\Fmax \\uparrow$"), ("MAE", "$\\MAE \\downarrow$"), ("E", "$E_s \\uparrow$"),
+            ("S", "$S_\\alpha \\uparrow$")]
+    out = ["\\begin{table*}[t]",
+           "\\caption{The untuned average of the SOD map and the mean of SAM's three probability maps (Sect.~5.3 "
+           "of the paper; its $\\Fmax$ is in Table~8 of the paper): all four metrics, against the SOD map and the "
+           "graph cut. Its soft output has a much worse $\\MAE$ and $E_s$.}",
+           "\\label{tab:suppl_rule_avg}", "\\centering", "\\footnotesize", "\\setlength{\\tabcolsep}{3pt}",
+           "\\begin{tabular}{@{}lll" + "c" * len(BENCH) + "@{}}", "\\toprule",
+           "SOD model & Map & Metric & " + " & ".join(BENCH) + " \\\\"]
+    for s, label in SODS:
+        out.append("\\midrule")
+        for i, (k, name) in enumerate(rows):
+            for j, (m, mname) in enumerate(meas):
+                first = f"\\multirow{{{len(rows) * len(meas)}}}{{*}}{{{label}}}" if i == j == 0 else ""
+                ncell = f"\\multirow{{{len(meas)}}}{{*}}{{{name}}}" if j == 0 else ""
+                out.append(f"{first} & {ncell} & {mname} & " + " & ".join(f3(reps[s][b][k][m]) for b in BENCH)
+                           + " \\\\")
+            if i < len(rows) - 1:
+                out.append(f"\\cmidrule(l){{2-{3 + len(BENCH)}}}")
+    out += ["\\botrule", "\\end{tabular}", "\\end{table*}"]
+    return "\n".join(out) + "\n"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -318,6 +348,7 @@ def main():
     (out / "suppl_partc.tex").write_text(partc_table())
     (out / "suppl_oracle_auto.tex").write_text(oracle_auto_table())
     (out / "suppl_fixed_f.tex").write_text(fixed_f_table())
+    (out / "suppl_rule_avg.tex").write_text(rule_avg_table(reps))
     print("wrote", [p.name for p in out.glob("suppl_*.tex")][:20])
 
 
