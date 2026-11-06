@@ -14,6 +14,8 @@
               d_down[y, x] = 1 - <f[y, x], f[y+1, x]> (last column / row 0), resized to the image size,
               clipped to [0, 1] and stored as uint8 (round(d * 255)) in
               <OUT_ROOT>/sam_feat/<ds>/<id>_r.png and <id>_d.png (fusion.py pairwise "feat" / "both")
+  auto_loose  the automatic masks with pred_iou_thresh 0.6 and stability_score_thresh 0.85 (SAM: 0.8, 0.95),
+              in <OUT_ROOT>/sam_auto_loose/<ds>/ (more, rougher candidates; scripts/oracle_auto.py)
 
   python scripts/run_sam_extra.py --prompt auto --datasets DUTS-TE
   python scripts/run_sam_extra.py --prompt zoom_m0 zoom_m100 --sod-model samba --datasets DUTS-TE
@@ -35,10 +37,12 @@ from sodsam.sam_prompting import SamRunner
 AUTO_MIN, AUTO_MAX = 0.002, 0.95
 
 
-def auto_generator(sam):
+def auto_generator(sam, loose=False):
+    """SAM's defaults, or (loose) lower quality thresholds: more, rougher candidates (auto_loose)."""
     from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+    iou, stab = (0.6, 0.85) if loose else (0.8, 0.95)
     return SAM2AutomaticMaskGenerator(sam.predictor.model, points_per_side=32, points_per_batch=64,
-                                      pred_iou_thresh=0.8, stability_score_thresh=0.95, multimask_output=True)
+                                      pred_iou_thresh=iou, stability_score_thresh=stab, multimask_output=True)
 
 
 def run_auto(gen, img, path):
@@ -97,22 +101,25 @@ def main():
     ap.add_argument("--datasets", nargs="+", required=True)
     args = ap.parse_args()
     sam = SamRunner()
-    gen = auto_generator(sam) if "auto" in args.prompt else None
+    auto = [p for p in args.prompt if p in ("auto", "auto_loose")]
+    if len(auto) > 1:
+        ap.error("one of auto / auto_loose per run")
+    gen = auto_generator(sam, auto == ["auto_loose"]) if auto else None
     zooms = [p for p in args.prompt if p.startswith("zoom_m")]
     if zooms and not args.sod_model:
         ap.error("zoom prompts need --sod-model")
     for ds in args.datasets:
         ids = data.list_ids(ds)
         if gen is not None:
-            out = data.OUT_ROOT / "sam_auto" / ds
+            out = data.OUT_ROOT / f"sam_{auto[0]}" / ds
             counts = []
-            for id_ in tqdm(ids, desc=f"auto/{ds}"):
+            for id_ in tqdm(ids, desc=f"{auto[0]}/{ds}"):
                 p = out / f"{id_}.npz"
                 if p.exists():
                     continue
                 counts.append(run_auto(gen, data.load_image(ds, id_), p))
             if counts:
-                print(f"auto/{ds}: {len(counts)} images, {np.mean(counts):.1f} masks per image", flush=True)
+                print(f"{auto[0]}/{ds}: {len(counts)} images, {np.mean(counts):.1f} masks per image", flush=True)
         if "feat" in args.prompt:
             out = data.OUT_ROOT / "sam_feat" / ds
             n = 0

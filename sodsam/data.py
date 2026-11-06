@@ -64,7 +64,7 @@ def mask_dir(name):
 
 
 def _excluded():
-    p = Path(__file__).with_name("excluded_ids.json")
+    p = Path(os.environ.get("SODSAM_EXCLUDED", Path(__file__).with_name("excluded_ids.json")))
     if not p.exists():
         return {}
     return {k: set(v) for k, v in json.loads(p.read_text()).items() if not k.startswith("_")}

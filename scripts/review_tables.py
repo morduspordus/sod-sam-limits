@@ -6,6 +6,9 @@ and the error_robust.py results (results/error_robust/<model>.json). Writes LaTe
   suppl_gain_type.tex  per error type of the SOD map: its share of the SOD map's loss (1 - F at each map's
                        Fmax threshold) and of the graph cut's and the head's reduction of that loss
   suppl_prompt.tex     SAM and the graph cut for each encoding of the mask prompt
+  suppl_partc.tex      the graph cut for MDSAM, VSCode-S and VST++-B, with bootstrap intervals of its gain
+  suppl_oracle_auto.tex per-image oracles with SAM's automatic masks (scripts/oracle_auto.py)
+  suppl_fixed_f.tex    F at the fixed threshold 0.5 and adaptive F of the SOD map, the cut and the head (fixed_f.py)
   suppl_err_robust.tex the error decomposition of the six SOD models under other weightings, thresholds, and
                        at the pixel level
 
@@ -27,6 +30,12 @@ MODELS = [("selfreformer", "SelfReformer"), ("samba", "Samba"), ("birefnet", "Bi
 
 def f3(x):
     return f"{x:.3f}"[1:] if 0 <= x < 1 else f"{x:.3f}"
+
+
+def sgn(x):
+    """Signed difference as in tables/bootstrap.tex: +.006, $-$.001, four decimals where three round to .000."""
+    s = f"{abs(x):.3f}" if round(abs(x), 3) > 0 else f"{abs(x):.4f}"
+    return ("$-$" if x < 0 else "+") + s[1:]
 
 
 def pct(x):
@@ -185,6 +194,115 @@ def prompt_table():
     return "\n".join(out) + "\n"
 
 
+def partc_table():
+    """The paper's graph cut for three more SOD models, tuned exactly as in the paper, from import/partc/
+    eval_partc_<model>.json and the paired bootstrap of the cut against the SOD map, partc_<model>.json
+    (jobs/partc_cut.sbatch)."""
+    models = [("mdsam", "MDSAM"), ("vscode", "VSCode-S"), ("vstpp", "VST++-B")]
+    out = ["\\begin{table*}[t]",
+           "\\caption{The graph cut for three more SOD models ($\\Fmax$ and $\\MAE$, zoom-in prompt), tuned as in the paper "
+           "on MSOD, MSRA-B1K, and MSRA-B4K. SAM: its most confident mask. Gain: the $\\Fmax$ gain of the graph "
+           "cut over the SOD map, with its 95\\% paired bootstrap interval in the next row (as in Table~\\ref{tab:bootstrap}); "
+           "$^{*}$: the interval excludes zero. Last row: $\\MAE$ of the SOD map and of the graph cut. The maps are "
+           "computed with the released weights; those of VST++-B are not identical to the released maps "
+           "(see the text).}",
+           "\\label{tab:suppl_partc}", "\\centering", "\\footnotesize", "\\setlength{\\tabcolsep}{3pt}",
+           "\\begin{tabular}{@{}ll" + "c" * len(BENCH) + "@{}}", "\\toprule",
+           "SOD model & Map & " + " & ".join(BENCH) + " \\\\", "\\midrule"]
+    for j, (m, label) in enumerate(models):
+        d = json.loads((ROOT / "import" / "partc" / f"eval_partc_{m}.json").read_text())["datasets"]
+        bs = json.loads((ROOT / "import" / "partc" / f"partc_{m}.json").read_text())
+        for k, (meth, mname) in enumerate([("sod", "SOD map"), ("sam_conf", "SAM"), ("v2:", "Graph cut")]):
+            vals = [next(v["Fmax"] for key, v in d[b].items() if key.startswith(meth)) for b in BENCH]
+            first = f"\\multirow{{6}}{{*}}{{{label}}}" if k == 0 else ""
+            out.append(f"{first} & {mname} & " + " & ".join(f3(v) for v in vals) + " \\\\")
+        gains, cis = [], []
+        for b in BENCH:
+            r = bs[f"gc-sod/{b}"]
+            lo, hi = r["F_ci"]
+            gains.append(sgn(r["F_diff"]) + ("$^{*}$" if lo > 0 or hi < 0 else ""))
+            cis.append(f"{{\\scriptsize [{sgn(lo)}, {sgn(hi)}]}}")
+        out.append(" & Gain & " + " & ".join(gains) + " \\\\")
+        out.append(" & {\\scriptsize 95\\% interval} & " + " & ".join(cis) + " \\\\")
+        mae = [[next(v["MAE"] for key, v in d[b].items() if key.startswith(meth)) for b in BENCH]
+               for meth in ("sod", "v2:")]
+        out.append(" & $\\MAE$ SOD / cut & " + " & ".join(f"{f3(a)} / {f3(c)}" for a, c in zip(*mae)) + " \\\\")
+        if j < len(models) - 1:
+            out.append("\\midrule")
+    out += ["\\botrule", "\\end{tabular}", "\\end{table*}"]
+    return "\n".join(out) + "\n"
+
+
+def oracle_auto_table():
+    """Per-image oracles with SAM's automatic masks (scripts/oracle_auto.py, results/oracle_<auto>_<sod>_mask_zoom.json,
+    auto = default and loose quality thresholds)."""
+    res = {(a, s): json.loads((ROOT / "results" / f"oracle_{a}_{s}_mask_zoom.json").read_text())
+           for a in ("auto", "auto_loose") for s, _ in SODS}
+    n_masks = {a: [res[(a, "samba")][b]["n_auto_mean"] for b in BENCH] for a in ("auto", "auto_loose")}
+    out = ["\\begin{table*}[t]",
+           "\\caption{Per-image oracles with SAM's automatic (``everything'') masks ($\\Fmax$): with the ground truth, "
+           "choose per image the best candidate. Automatic masks: SAM~2.1 with a $32 \\times 32$ point grid, masks of "
+           "0.2\\% to 95\\% of the image, with SAM's default quality thresholds (predicted IoU $\\geq 0.8$, stability "
+           f"$\\geq 0.95$; {min(n_masks['auto']):.0f} to {max(n_masks['auto']):.0f} masks per image) or looser ones "
+           f"(0.6, 0.85; {min(n_masks['auto_loose']):.0f} to {max(n_masks['auto_loose']):.0f} masks per image). Union: "
+           "greedy union of automatic masks, adding the mask that raises $F$ most until none does. The second row of "
+           "each SOD model is the oracle of Table~6 of the paper.}",
+           "\\label{tab:suppl_oracle_auto}", "\\centering", "\\footnotesize", "\\setlength{\\tabcolsep}{3pt}",
+           "\\begin{tabular}{@{}ll" + "c" * len(BENCH) + "@{}}", "\\toprule",
+           " & Candidates & " + " & ".join(BENCH) + " \\\\", "\\midrule"]
+    rows = [("auto", "auto_single", "best automatic mask (default)"), ("auto", "auto_union", "union of automatic masks (default)"),
+            ("auto_loose", "auto_single", "best automatic mask (loose)"),
+            ("auto_loose", "auto_union", "union of automatic masks (loose)")]
+    for i, (a, k, name) in enumerate(rows):
+        first = f"\\multirow{{{len(rows)}}}{{*}}{{SAM alone}}" if i == 0 else ""
+        out.append(f"{first} & {name} & " + " & ".join(f3(res[(a, 'samba')][b][k]['Fmax']) for b in BENCH) + " \\\\")
+    rows = [("auto", "sod", "SOD map"), ("auto", "oracle_prompt", "SOD map, prompted masks"),
+            ("auto", "all_single", "$+$ automatic masks (default)"), ("auto", "all_union", "$+$ their union"),
+            ("auto_loose", "all_single", "$+$ automatic masks (loose)"), ("auto_loose", "all_union", "$+$ their union")]
+    for s, label in SODS:
+        out.append("\\midrule")
+        for i, (a, k, name) in enumerate(rows):
+            first = f"\\multirow{{{len(rows)}}}{{*}}{{{label}}}" if i == 0 else ""
+            out.append(f"{first} & {name} & " + " & ".join(f3(res[(a, s)][b][k]['Fmax']) for b in BENCH) + " \\\\")
+    out += ["\\botrule", "\\end{tabular}", "\\end{table*}"]
+    return "\n".join(out) + "\n"
+
+
+def fixed_f_table():
+    """F^max, F at the fixed threshold 128/255 and adaptive F of the SOD map, the graph cut and the head
+    (scripts/fixed_f.py, results/fixed_f_<sod>.json), with paired bootstrap differences at the fixed threshold."""
+    maps = [("sod", "SOD map"), ("gc", "Graph cut"), ("head", "Fusion head")]
+    meas = [("Fmax", "$\\Fmax$"), ("F05", "$F_\\beta$ at 0.5"), ("Fadp", "adaptive $F_\\beta$")]
+    diffs = [("gc-sod", "Graph cut $-$ SOD"), ("head-sod", "Head $-$ SOD"), ("head-gc", "Head $-$ graph cut")]
+    out = ["\\begin{table*}[t]",
+           "\\caption{$F_\\beta$ at thresholds that do not favor soft maps. $\\Fmax$: the best threshold for each "
+           "map and dataset (the paper's measure); $F_\\beta$ at 0.5: every map binarized at half its range; "
+           "adaptive $F_\\beta$: binarized at twice its mean, as in PySODMetrics. The graph cut is binary, so its three "
+           "values agree up to the min-max normalization. Last rows: differences of $F_\\beta$ at 0.5; $^{*}$: the "
+           "95\\% paired bootstrap interval excludes zero.}",
+           "\\label{tab:suppl_fixed_f}", "\\centering", "\\footnotesize", "\\setlength{\\tabcolsep}{3pt}",
+           "\\begin{tabular}{@{}lll" + "c" * len(BENCH) + "@{}}", "\\toprule",
+           "SOD model & Measure & Map & " + " & ".join(BENCH) + " \\\\"]
+    for s, label in SODS:
+        r = json.loads((ROOT / "results" / f"fixed_f_{s}.json").read_text())
+        out.append("\\midrule")
+        n_rows = len(meas) * len(maps) + len(diffs)
+        for i, (mk, mname) in enumerate(meas):
+            for j, (k, name) in enumerate(maps):
+                first = f"\\multirow{{{n_rows}}}{{*}}{{{label}}}" if i == j == 0 else ""
+                mcell = f"\\multirow{{{len(maps)}}}{{*}}{{{mname}}}" if j == 0 else ""
+                out.append(f"{first} & {mcell} & {name} & " + " & ".join(f3(r[b][k][mk]) for b in BENCH) + " \\\\")
+        for j, (k, name) in enumerate(diffs):
+            mcell = f"\\multirow{{{len(diffs)}}}{{*}}{{at 0.5}}" if j == 0 else ""
+            cells = []
+            for b in BENCH:
+                d, lo, hi = r[b]["ci_F05"][k]
+                cells.append(sgn(d) + ("$^{*}$" if lo > 0 or hi < 0 else ""))
+            out.append(f" & {mcell} & {name} & " + " & ".join(cells) + " \\\\")
+    out += ["\\botrule", "\\end{tabular}", "\\end{table*}"]
+    return "\n".join(out) + "\n"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -197,6 +315,9 @@ def main():
     (out / "suppl_err_robust.tex").write_text(robust_table(rob))
     (out / "suppl_stability.tex").write_text(stability_table())
     (out / "suppl_prompt.tex").write_text(prompt_table())
+    (out / "suppl_partc.tex").write_text(partc_table())
+    (out / "suppl_oracle_auto.tex").write_text(oracle_auto_table())
+    (out / "suppl_fixed_f.tex").write_text(fixed_f_table())
     print("wrote", [p.name for p in out.glob("suppl_*.tex")][:20])
 
 
