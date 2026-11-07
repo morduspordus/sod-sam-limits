@@ -517,7 +517,7 @@ def main():
                                  (f"{sod}_hz_noimg", "no image", HZ),
                                  (f"{sod}_hz_nosod", "no SOD map", HZ),
                                  (f"{sod}_hz_dutstr", "trained on DUTS-TR", HZ),
-                                 (f"{sod}_head4kc", "plain prompt", HEADS)):
+                                 (f"{sod}_hsoft_s0", "plain prompt", HZ)):
             rows[f"{label} ({nm})"] = head(tag, root)
             names.append(f"{label} ({nm})")
         rows[f"SOD alone ({nm})"] = ev(f"{sod}_final", "sod")

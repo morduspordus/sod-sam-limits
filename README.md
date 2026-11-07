@@ -70,7 +70,9 @@ Added in the second round of the revision:
 - `gain_type_ci.py` bootstrap intervals of the share of the fusion's gain on images with a boundary error;
 - `sliver_stats.py` the small cells of constant signature of the pixel-level oracle;
 - `suppl_stats_tables.py` and `multi_stats_table.py` the supplementary tables of the oracle statistics, the
-  per-type loss reduction, the two analyses above, and the multi-annotator statistics.
+  per-type loss reduction, the two analyses above, and the multi-annotator statistics;
+- the fusion head with the plain prompt, as the zoom-in head but with `--prompt mask_soft --seed <s>
+  --tag <sod_model>_hsoft_s<s>` (seeds 0 to 2); seed 0 is the "plain prompt" row of the head ablations.
 
 ## License
 
