@@ -61,6 +61,14 @@ def head(tag, root=HEADS):
     return d["test"] if d else {}
 
 
+def head_mean(sod):
+    """The paper's fusion head: the mean over its three training seeds (<sod>_hz, _hz_s1, _hz_s2) of each metric."""
+    runs = [head(f"{sod}_hz{s}", HZ) for s in ("", "_s1", "_s2")]
+    if not all(runs):
+        return {}
+    return {ds: {m: float(np.mean([r[ds][m] for r in runs])) for m in runs[0][ds] if m != "n"} for ds in runs[0]}
+
+
 def fmt(v, key):
     return "--" if v is None else f"{v:.3f}"[1:] if v < 1 else f"{v:.3f}"
 
@@ -219,8 +227,8 @@ def samrefiner_table(gc_key, label, caption):
                 ("graph cut on SAMRefiner's masks", ev(f"{sod}_srf", r"mask_srf_linear_paper_binary_all"),
                  f"eval_{sod}_srf.json:v2:...mask_srf_linear_paper_binary_all"),
                 ("fusion head on SAMRefiner's masks", head(f"{sod}_hsrf", HZ), f"heads/{sod}_hsrf.json:test"),
-                ("graph cut (ours)", ev(f"{sod}_zoom_5300", gc_key), f"eval_{sod}_zoom_5300.json:{gc_key}"),
-                ("fusion head (ours)", head(f"{sod}_hz", HZ), f"heads/{sod}_hz.json:test")]
+                ("graph cut", ev(f"{sod}_zoom_5300", gc_key), f"eval_{sod}_zoom_5300.json:{gc_key}"),
+                ("fusion head (mean of 3 seeds)", head_mean(sod), f"heads/{sod}_hz*.json:test (mean)")]
         lines.append(r"\midrule")
         lines.append(rf"\multicolumn{{{len(DS) + 1}}}{{@{{}}l}}{{\emph{{{nm}}}}} \\")
         for name, r, src in rows:
@@ -394,7 +402,7 @@ def pixel_oracle_table(gc_key, label, caption):
         f = use("pixel_oracle", f"graph cut ({nm})", "Fmax", g.get("Fmax"), f"eval_{sod}_zoom_5300.json:{gc_key}:DUTS-TE:Fmax")
         w = use("pixel_oracle", f"graph cut ({nm})", "wrong_pixels=MAE", g.get("MAE"), f"eval_{sod}_zoom_5300.json:{gc_key}:DUTS-TE:MAE")
         cells += [fmt(f, "Fmax"), "--" if w is None else f"{100 * w:.2f}\\%"]
-    lines.append("graph cut (ours, binary) & " + " & ".join(cells) + r" \\")
+    lines.append("graph cut (binary) & " + " & ".join(cells) + r" \\")
     for sod, nm in MODELS:
         use("pixel_oracle", f"SOD threshold ({nm})", "sod_threshold", thr[sod], f"dev:pixel_oracle_{sod}_mask_zoom.json:DUTS-TE:sod_threshold")
         use("pixel_oracle", f"SOD soft Fmax ({nm})", "sod_soft_Fmax", soft[sod], f"dev:pixel_oracle_{sod}_mask_zoom.json:DUTS-TE:sod_soft_Fmax")
@@ -424,7 +432,7 @@ def negative_table(gc_key, label, caption, key="Fmax"):
         return {ds: next((v for k, v in (get(d, "datasets", ds) or {}).items() if k != "sod"), None) for ds in dss}
 
     variants = [
-        ("Graph cut (ours, reference)", lambda s: ev(f"{s}_zoom_5300", gc_key), lambda s: f"eval_{s}_zoom_5300.json:{gc_key}"),
+        ("Graph cut (reference)", lambda s: ev(f"{s}_zoom_5300", gc_key), lambda s: f"eval_{s}_zoom_5300.json:{gc_key}"),
         ("Expected-$F$ decision (SOD / SAM / cut)", lambda s: ds_key(RES / f"eval_{s}_idea_decision.json"), lambda s: f"eval_{s}_idea_decision.json:datasets"),
         ("Nested two-answer cut, outer mask", lambda s: ds_key(RES / f"eval_{s}_idea_nested.json", "outer"), lambda s: f"eval_{s}_idea_nested.json:datasets:outer"),
         ("Label-cost $\\alpha$-expansion (SAM auto masks)", lambda s: ds_key(RES / f"eval_{s}_labelcost.json", "labelcost"), lambda s: f"eval_{s}_labelcost.json:datasets:labelcost"),
@@ -500,13 +508,14 @@ def main():
         crf = ev("selfreformer_sod_crf" if sod == "selfreformer" else "samba_sod_crf", "sod_crf")
         rows = {"SOD": ev(f"{sod}_final", "sod"), "SOD + dense CRF": crf,
                 r"SOD + SAM\\(most conf.\ mask)": ev(f"{sod}_zoom_naive", "sam_conf"),
-                r"Ours, graph cut\\(training-free)": ev(f"{sod}_zoom_5300", gc),
-                r"Ours, fusion head\\(learned)": head(f"{sod}_hz", HZ)}
+                r"Graph cut\\(training-free)": ev(f"{sod}_zoom_5300", gc),
+                r"Fusion head\\(learned)": head_mean(sod)}
         tabs[f"main_{sod}"] = main_table(
             sod, rows, f"tab:main_{sod}",
             f"Improving {SOD_NAME[sod]} with SAM~2.1. The graph cut is tuned and the fusion head is trained on "
-            "images not used by the SOD model and disjoint from the benchmarks (Sect.~\\ref{sec:params}). "
-            "The best result for each metric and dataset is in bold.")
+            "images not used by the SOD model and disjoint from the benchmarks (Sect.~\\ref{sec:params}); the "
+            "head's values are the means over three training seeds. The best result for each metric and dataset "
+            "is in bold.")
 
     # head ablations: inputs and training set (F^max on all benchmarks)
     rows, groups = {}, []
@@ -553,7 +562,7 @@ def main():
         r = {f"SOD ({nm})": {ds: o[ds]["sod"] for ds in o},
              f"oracle: best SAM mask ({nm})": {ds: o[ds]["oracle_sam"] for ds in o},
              f"oracle: best of SOD and SAM ({nm})": {ds: o[ds]["oracle_all"] for ds in o},
-             f"graph cut ({nm})": ev(f"{sod}_zoom_5300", gc), f"fusion head ({nm})": head(f"{sod}_hz", HZ)}
+             f"graph cut ({nm})": ev(f"{sod}_zoom_5300", gc), f"fusion head ({nm})": head_mean(sod)}
         rows.update(r)
         groups.append((nm, list(r)))
     tabs["oracle"] = f_table(rows, "tab:oracle", r"Oracle per-image selection ($\Fmax$): with the ground truth, "

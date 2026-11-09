@@ -9,6 +9,7 @@ and the error_robust.py results (results/error_robust/<model>.json). Writes LaTe
   suppl_partc.tex      the graph cut for MDSAM, VSCode-S and VST++-B, with bootstrap intervals of its gain
   suppl_oracle_auto.tex per-image oracles with SAM's automatic masks (scripts/oracle_auto.py)
   suppl_fixed_f.tex    F at the fixed threshold 0.5 and adaptive F of the SOD map, the cut and the head (fixed_f.py)
+  suppl_gain_pixel.tex the shares of the loss and of the gain by the distance to the contour (gain_pixel.py)
   suppl_err_robust.tex the error decomposition of the six SOD models under other weightings, thresholds, and
                        at the pixel level
 
@@ -112,7 +113,7 @@ def robust_table(rob):
            "a grid of the taxonomy's thresholds (boundary IoU 0.75--0.90, containment 0.8--0.95, part/whole ratio "
            "1.5--3, lower extent ratio 1.05--1.3; 108 settings). Last two columns: the share of all wrong pixels "
            "of the thresholded SOD mask (pooled over the dataset) within 5 and 10 pixels of the ground-truth "
-           "contour, an upper bound on the pixel error that a better outline alone could remove.}",
+           "contour, a rough measure of the pixel error that a better outline alone could remove.}",
            "\\label{tab:suppl_err_robust}", "\\centering", "\\footnotesize", "\\setlength{\\tabcolsep}{3pt}",
            "\\begin{tabular}{@{}ll ccccc ccccc c cc@{}}", "\\toprule",
            " & & \\multicolumn{5}{c}{Loss-weighted (paper)} & \\multicolumn{5}{c}{Wrong-pixel-weighted} & "
@@ -333,6 +334,46 @@ def rule_avg_table(reps):
     return "\n".join(out) + "\n"
 
 
+def gain_pixel_table():
+    """Share of the SOD map's loss and of the graph cut's and the head's F gain by the distance to the ground-truth
+    contour (gain_pixel.py), with the bins merged to <= 3, (3, 10], > 10 px."""
+    def merged(v):
+        return [v[0], v[1] + v[2], v[3]]
+    out = ["\\begin{table*}[t]",
+           "\\caption{Where the gain lies, by the distance $d$ to the ground-truth contour (Sect.~5.3 of the paper). "
+           "Each map is binarized at its own $\\Fmax$ threshold. Loss: share (\\%) of the SOD map's loss $1 - F$ "
+           "(false positives weighted 1 and false negatives 0.3, as in $F_\\beta$). GC, head: share (\\%) of the "
+           "method's gain in $\\Fmax$, where the gain of a band is the change of $F$ when the labels of the SOD mask "
+           "are replaced by those of the method only within the band (averaged with the reverse replacement); the "
+           "bands' gains add up to within 7\\% of the total (16\\% for the Samba head on DUT-OMRON). Negative: the "
+           "method makes the band worse; shares above 100: the other bands are worse. The Samba head's gains are "
+           ".001 to .004, so its shares vary widely. GC red.: the graph cut's gain in a band as a share (\\%) of the "
+           "SOD map's loss in that band.}",
+           "\\label{tab:suppl_gain_pixel}", "\\centering", "\\scriptsize", "\\setlength{\\tabcolsep}{2.5pt}",
+           "\\begin{tabular}{@{}ll" + "ccc" * len(BENCH) + "@{}}", "\\toprule",
+           " & & " + " & ".join(f"\\multicolumn{{3}}{{c}}{{{b}}}" for b in BENCH) + " \\\\",
+           "".join(f"\\cmidrule(lr){{{3 + 3 * i}-{5 + 3 * i}}}" for i in range(len(BENCH))),
+           "SOD model & Share & " + " & ".join(["$\\leq$3 & 3--10 & $>$10"] * len(BENCH)) + " px \\\\",
+           "\\midrule"]
+    for j, (sod, label) in enumerate(SODS):
+        res = {f: json.loads((ROOT / "results" / "gain_pixel" / f"{sod}_{f}.json").read_text()) for f in ("gc", "head")}
+        def reduction(b):
+            g, l = merged(res["gc"][b]["abs"]["gain"]), merged(res["gc"][b]["abs"]["loss"])
+            return [x / y for x, y in zip(g, l)]
+        rows = [("Loss", lambda b: merged(res["gc"][b]["abs"]["loss_share"])),
+                ("GC gain", lambda b: merged(res["gc"][b]["abs"]["gain_share"])),
+                ("GC red.", reduction),
+                ("Head gain", lambda b: merged(res["head"][b]["abs"]["gain_share"]))]
+        for i, (name, get) in enumerate(rows):
+            cells = [pct(x) for b in BENCH for x in get(b)]
+            first = f"\\multirow{{{len(rows)}}}{{*}}{{{label}}}" if i == 0 else ""
+            out.append(f"{first} & {name} & " + " & ".join(cells) + " \\\\")
+        if j < len(SODS) - 1:
+            out.append("\\midrule")
+    out += ["\\botrule", "\\end{tabular}", "\\end{table*}"]
+    return "\n".join(out) + "\n"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -349,6 +390,7 @@ def main():
     (out / "suppl_oracle_auto.tex").write_text(oracle_auto_table())
     (out / "suppl_fixed_f.tex").write_text(fixed_f_table())
     (out / "suppl_rule_avg.tex").write_text(rule_avg_table(reps))
+    (out / "suppl_gain_pixel.tex").write_text(gain_pixel_table())
     print("wrote", [p.name for p in out.glob("suppl_*.tex")][:20])
 
 

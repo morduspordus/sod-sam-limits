@@ -5,7 +5,7 @@
   edges     SAM masks and their oriented boundaries (at least two masks agree), as in Sect. 4.3
   results   image | GT | SOD | graph cut | fusion head, for both SOD models
   failures  the same columns for images where both methods fail
-  teaser    image | GT | SOD map | SAM masks 1-3 | graph cut | fusion head, one image
+  teaser    image | GT | SOD map | SAM masks 1-3 | graph cut | fusion head, one image in two rows of four
             (the paper: --sod-model selfreformer --pick teaser=sun_axksigdbtcbsdxqi)
 
 Examples are chosen by the stated criteria among DUTS-TE images with a 4:3 landscape aspect ratio;
@@ -59,6 +59,31 @@ def grid(rows, headers, path):
                 font = ImageFont.truetype("arial.ttf", font.size - 1)
             w = d.textlength(h, font=font)
             d.text((j * (W + GAP) + (W - w) / 2, 4), h, fill=(0, 0, 0), font=font)
+    save(im, path)
+
+
+def grid_labeled(rows, labels, path):
+    """rows: list of lists of HxWx3 tiles; labels: the same shape, a title above every tile."""
+    n_c = max(len(r) for r in rows)
+    top = FONT_PX + 12
+    canvas = np.full((len(rows) * (top + H + GAP) - GAP, n_c * (W + GAP) - GAP, 3), 255, np.uint8)
+    for i, r in enumerate(rows):
+        for j, t in enumerate(r):
+            y, x = i * (top + H + GAP) + top, j * (W + GAP)
+            canvas[y:y + H, x:x + W] = t
+    im = Image.fromarray(canvas)
+    d = ImageDraw.Draw(im)
+    for i, r in enumerate(labels):
+        for j, h in enumerate(r):
+            font = FONT
+            while d.textlength(h, font=font) > W - 4:
+                font = ImageFont.truetype("arial.ttf", font.size - 1)
+            w = d.textlength(h, font=font)
+            d.text((j * (W + GAP) + (W - w) / 2, i * (top + H + GAP) + 4), h, fill=(0, 0, 0), font=font)
+    save(im, path)
+
+
+def save(im, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     im.save(path, "PDF", resolution=200)
     im.save(SCRATCH / (path.stem + ".png"))
@@ -223,10 +248,11 @@ def fig_results(out, pick, gc_name, failures=False, exclude=()):
 
 def fig_teaser(sod, out, i, gc_name):
     s, gc, hd = outputs(sod, i, gc_name, f"{sod}_hz")
-    rows = [[tile(data.load_image(DS, i)), tile(data.load_gt(DS, i), True), tile(s)]
-            + [tile(m, True) for m in sam_masks(sod, i)] + [tile(gc), tile(hd)]]
-    grid(rows, ["Image", "Ground truth", "SOD map", "SAM mask 1", "SAM mask 2", "SAM mask 3", "Graph cut",
-                "Fusion head"], out / "teaser_v2.pdf")
+    tiles = ([tile(data.load_image(DS, i)), tile(data.load_gt(DS, i), True), tile(s)]
+             + [tile(m, True) for m in sam_masks(sod, i)] + [tile(gc), tile(hd)])
+    labels = ["Image", "Ground truth", "SOD map", "SAM mask 1", "SAM mask 2", "SAM mask 3", "Graph cut",
+              "Fusion head"]
+    grid_labeled([tiles[:4], tiles[4:]], [labels[:4], labels[4:]], out / "teaser_v2.pdf")      # two rows of four
 
 
 def main():
