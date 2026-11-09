@@ -5,7 +5,8 @@
   edges     SAM masks and their oriented boundaries (at least two masks agree), as in Sect. 4.3
   results   image | GT | SOD | graph cut | fusion head, for both SOD models
   failures  the same columns for images where both methods fail
-  teaser    image | SOD map | SAM masks 1-3 | graph cut | fusion head, one image
+  teaser    image | GT | SOD map | SAM masks 1-3 | graph cut | fusion head, one image
+            (the paper: --sod-model selfreformer --pick teaser=sun_axksigdbtcbsdxqi)
 
 Examples are chosen by the stated criteria among DUTS-TE images with a 4:3 landscape aspect ratio;
 --pick name=id1,id2,... overrides the choice.
@@ -222,9 +223,10 @@ def fig_results(out, pick, gc_name, failures=False, exclude=()):
 
 def fig_teaser(sod, out, i, gc_name):
     s, gc, hd = outputs(sod, i, gc_name, f"{sod}_hz")
-    rows = [[tile(data.load_image(DS, i)), tile(s)] + [tile(m, True) for m in sam_masks(sod, i)] + [tile(gc), tile(hd)]]
-    grid(rows, ["Image", "SOD map", "SAM mask 1", "SAM mask 2", "SAM mask 3", "Graph cut", "Fusion head"],
-         out / "teaser_v2.pdf")
+    rows = [[tile(data.load_image(DS, i)), tile(data.load_gt(DS, i), True), tile(s)]
+            + [tile(m, True) for m in sam_masks(sod, i)] + [tile(gc), tile(hd)]]
+    grid(rows, ["Image", "Ground truth", "SOD map", "SAM mask 1", "SAM mask 2", "SAM mask 3", "Graph cut",
+                "Fusion head"], out / "teaser_v2.pdf")
 
 
 def main():
